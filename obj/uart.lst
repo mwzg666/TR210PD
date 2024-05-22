@@ -1,0 +1,173 @@
+C251 COMPILER V5.60.0,  uart                                                               21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE uart
+OBJECT MODULE PLACED IN .\obj\uart.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE Hardware\Usart\uart.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Ha
+                    -rdware\LED;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\uart.lst) OBJECT(.
+                    -\obj\uart.obj) 
+
+stmt  level    source
+
+    1          #include "uart.h"
+    2          #include "ModBusDev.h"
+    3          u16 Rx1_Timer  = 0;
+    4          
+    5          u8  TX1_Cnt;    //发送计数
+    6          u8  RX1_Cnt;    //接收计数
+    7          bit B_TX1_Busy; //发送忙标志
+    8          
+    9          u8  xdata RX1_Buffer[MAX_LENGTH]; //接收缓冲
+   10          
+   11          u8  RecvBuf[UART_BUF_LEN] = {0};
+   12          u8  SendBuf[UART_BUF_LEN] = {0};
+   13          
+   14          
+   15          void UART1_config()
+   16          {
+   17   1          /*********** 波特率使用定时器1 *****************/
+   18   1          {
+   19   2              TR1 = 0;
+   20   2              AUXR &= ~0x01;      //S1 BRT Use Timer1;
+   21   2              AUXR |=  (1<<6);    //Timer1 set as 1T mode
+   22   2              TMOD &= ~(1<<6);    //Timer1 set As Timer
+   23   2              TMOD &= ~0x30;      //Timer1_16bitAutoReload;
+   24   2              TH1 = (u8)((65536UL - (MAIN_Fosc / 4) / Baudrate3) / 256);
+   25   2              TL1 = (u8)((65536UL - (MAIN_Fosc / 4) / Baudrate3) % 256);
+   26   2              ET1 = 0;    //禁止中断
+   27   2              INTCLKO &= ~0x02;  //不输出时钟
+   28   2              TR1  = 1;
+   29   2          }
+   30   1      
+   31   1          /*************************************************/
+   32   1          //UART1模式, 0x00: 同步移位输出, 0x40: 8位数据,可变波特率, 
+   33   1          //           0x80: 9位数据,固定波特率, 0xc0: 9位数据,可变波特率 
+   34   1      
+   35   1          SCON = (SCON & 0x3f) | 0x40; 
+   36   1      
+   37   1          PS  = 0;    //中断高优先级
+   38   1          PSH = 1;
+   39   1      
+   40   1          ES  = 1;    //允许中断
+   41   1          REN = 1;    //允许接收
+   42   1          
+   43   1          //UART1 switch to, 0x00: P3.0 P3.1, 0x40: P3.6 P3.7, 
+   44   1          //                 0x80: P1.6 P1.7, 0xC0: P4.3 P4.4
+   45   1          P_SW1 &= 0x3f;
+   46   1          P_SW1 |= 0x40;  
+   47   1          
+   48   1          B_TX1_Busy = 0;
+   49   1          TX1_Cnt = 0;
+   50   1          RX1_Cnt = 0;
+   51   1      }
+   52          
+   53          void UART1_ISR (void) interrupt 4
+   54          {
+   55   1          if(RI)
+   56   1          {
+   57   2              RI = 0;
+C251 COMPILER V5.60.0,  uart                                                               21/05/24  09:30:57  PAGE 2   
+
+   58   2              Rx1_Timer = 0;
+   59   2              RX1_Buffer[RX1_Cnt] = SBUF;
+   60   2              
+   61   2              if(++RX1_Cnt >= MAX_LENGTH)   
+   62   2              {
+   63   3                  RX1_Cnt = 0;
+   64   3              }
+   65   2          }
+   66   1      
+   67   1          if(TI)
+   68   1          {
+   69   2              TI = 0;
+   70   2              B_TX1_Busy = 0;
+   71   2          }
+   72   1      }
+   73          
+   74          
+   75          //UART1 发送串口数据
+   76          void UART1_SendData(char dat)
+   77          {
+   78   1          ES=0;            //关串口中断
+   79   1          SBUF=dat;            
+   80   1          while(TI!=1);    //等待发送成功
+   81   1          TI=0;            //清除发送中断标志
+   82   1          ES=1;            //开串口中断
+   83   1      }
+   84          
+   85          //UART1 发送字符串
+   86          void UART1_SendString(char *s)
+   87          {
+   88   1          while(*s)//检测字符串结束符
+   89   1          {
+   90   2              UART1_SendData(*s++);//发送当前字符
+   91   2          }
+   92   1      }
+   93          
+   94          //重定向Printf
+   95          char putchar(char c )
+   96          {
+   97   1          SBUF = c;
+   98   1          while(!TI);
+   99   1          TI = 0;
+  100   1          return c;
+  101   1      }
+  102          
+  103          
+  104          void Uart1Send(u8 *buf, u8 len)
+  105          {
+  106   1          u8 i;
+  107   1          for (i=0;i<len;i++)     
+  108   1          {
+  109   2              SBUF = buf[i];
+  110   2              B_TX1_Busy = 1;
+  111   2              while(B_TX1_Busy);
+  112   2          }
+  113   1      }
+  114          
+  115          
+  116          void ClearUart1Buf()
+  117          {
+  118   1          memset(RX1_Buffer,0,UART_BUF_LEN);
+  119   1          RX1_Cnt = 0;
+  120   1      }
+  121          
+  122          
+  123          void Uart1Hnd()
+C251 COMPILER V5.60.0,  uart                                                               21/05/24  09:30:57  PAGE 3   
+
+  124          {
+  125   1          if (Rx1_Timer > 20)
+  126   1          {
+  127   2              Rx1_Timer = 0;
+  128   2              //Uart1Send(RX1_Buffer,RX1_Cnt);
+  129   2              HndModBusRecv(RX1_Buffer,RX1_Cnt);
+  130   2              ClearUart1Buf();
+  131   2          }
+  132   1      }
+  133          
+  134          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =       280     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =       200     ------
+  xdata-const size     =    ------     ------
+  edata size           =        68     ------
+  bit size             =         1     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =        78     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

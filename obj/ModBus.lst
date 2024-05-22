@@ -1,0 +1,258 @@
+C251 COMPILER V5.60.0,  ModBus                                                             21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE ModBus
+OBJECT MODULE PLACED IN .\obj\ModBus.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE ModBus\ModBus.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Hardware
+                    -\LED;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\ModBus.lst) OBJECT(.\obj
+                    -\ModBus.obj) 
+
+stmt  level    source
+
+    1          #include "ModBus.h"
+    2          
+    3          //校验和计算
+    4          WORD CRC16Calc(BYTE *dataBuff, DWORD dataLen)
+    5          {
+    6   1          DWORD CRCResult = 0xFFFF;
+    7   1          DWORD i,j;
+    8   1          
+    9   1          for (i = 0; i < dataLen; i++)
+   10   1          {   
+   11   2              CRCResult = CRCResult ^ dataBuff[i];
+   12   2              for (j = 0; j < 8; j++)
+   13   2              {
+   14   3                  if ((CRCResult & 1) == 1)
+   15   3                  {
+   16   4                      CRCResult = (CRCResult >> 1) ^ 0xA001;
+   17   4                  }
+   18   3                  else
+   19   3                  {
+   20   4                      CRCResult >>= 1;
+   21   4                  }
+   22   3              }
+   23   2          }
+   24   1          
+   25   1          return (WORD)CRCResult;
+   26   1      }
+   27          WORD WordToSmall(WORD dat)
+   28          {
+   29   1          BYTE buf[2];
+   30   1          BYTE t;
+   31   1          WORD ret;
+   32   1          
+   33   1          memcpy(buf, &dat, 2);
+   34   1          t = buf[1];
+   35   1          buf[0] = buf[1];
+   36   1          buf[1] = t;
+   37   1          
+   38   1          memcpy(&ret, buf, 2);
+   39   1          return ret;
+   40   1      }
+   41          
+   42          DWORD FloattoDWORD(float f1)
+   43          {
+   44   1          DWORD dw  = 0;
+   45   1              dw = *((DWORD*)&f1);
+   46   1          return dw;
+   47   1      }
+   48          
+   49          float DWORDtoFloat(DWORD dw)
+   50          {
+   51   1          float fl  = 0.0;
+   52   1              fl = *((float*)&dw);
+   53   1          return fl;
+   54   1      }
+   55          
+   56          float FloatToSmall(float dat)
+   57          {
+C251 COMPILER V5.60.0,  ModBus                                                             21/05/24  09:30:57  PAGE 2   
+
+   58   1          BYTE buf[4];
+   59   1          BYTE t;
+   60   1          float ret;
+   61   1          
+   62   1          memcpy(buf, &dat, 4);
+   63   1          t = buf[3];
+   64   1          buf[3] = buf[0];
+   65   1          buf[0] = t;
+   66   1          t = buf[2];
+   67   1          buf[2] = buf[1];
+   68   1          buf[1] = t;
+   69   1      
+   70   1          memcpy(&ret, buf, 4);
+   71   1          return ret;
+   72   1      }
+   73          
+   74          DWORD DwordToSmall(DWORD dat)
+   75          {
+   76   1          BYTE buf[4];
+   77   1          BYTE t;
+   78   1          DWORD ret;
+   79   1          
+   80   1          memcpy(buf, &dat, 4);
+   81   1          t = buf[3];
+   82   1          buf[3] = buf[0];
+   83   1          buf[0] = t;
+   84   1          t = buf[2];
+   85   1          buf[2] = buf[1];
+   86   1          buf[1] = t;
+   87   1      
+   88   1          memcpy(&ret, buf, 4);
+   89   1          return ret;
+   90   1      }
+   91          
+   92          
+   93          /*转化字节序*/
+   94          void ByteConvert(BYTE *InData, BYTE *OutData)
+   95          {  
+   96   1          OutData[3] = InData[0];
+   97   1          OutData[2] = InData[1];
+   98   1          OutData[1] = InData[2];
+   99   1          OutData[0] = InData[3];  
+  100   1      }
+  101          
+  102          // 把浮点数转化为大端字节数组
+  103          void FloatToBytes(float dat, BYTE *res)
+  104          {
+  105   1          BYTE temp[4] = {0};
+  106   1          memcpy(temp, &dat, 4);
+  107   1          ByteConvert(temp, res);
+  108   1      }
+  109          
+  110          // 把大端字节数组转化为浮点数
+  111          float BytesToFloat(BYTE *dat)
+  112          {
+  113   1          float ret;
+  114   1          BYTE temp[4] = {0};
+  115   1          ByteConvert(dat, temp);
+  116   1          memcpy(&ret, temp, 4);
+  117   1          return ret;
+  118   1      }
+  119          
+  120          // 把大端字节数组转化为32bit整数
+  121          DWORD BytesToDWord(BYTE *dat)
+  122          {
+  123   1          DWORD ret,temp;
+C251 COMPILER V5.60.0,  ModBus                                                             21/05/24  09:30:57  PAGE 3   
+
+  124   1          memcpy(&temp, dat, 4);
+  125   1          ret = SwEndian(temp);
+  126   1          return ret;
+  127   1      }
+  128          
+  129          // 把大端字节数组转化为16bit整数
+  130          WORD BytesToWord(BYTE *dat)
+  131          {
+  132   1          WORD ret,temp;
+  133   1          memcpy(&temp, dat, 2);
+  134   1          ret = SwEndianW(temp);
+  135   1          return ret;
+  136   1      }
+  137          
+  138          
+  139          /*********************************
+  140          函数名称:DWORD SwEndian(DWORD input)
+  141          函数功能:大小端整数互换
+  142          作者:姚明钢
+  143          修改记录:2018.5.4
+  144          **********************************/
+  145          DWORD SwEndian(DWORD input)
+  146          { 
+  147   1          DWORD temp=0;
+  148   1          temp = ((input&0x000000FF)<<24) |
+  149   1                 ((input&0x0000FF00)<<8) |
+  150   1                 ((input&0x00FF0000)>>8) |
+  151   1                 ((input&0xFF000000)>>24);
+  152   1          return temp;
+  153   1      }
+  154          
+  155          
+  156          
+  157          
+  158          WORD SwEndianW(WORD input)
+  159          { 
+  160   1          WORD temp=0;
+  161   1          temp = ((input&0x00FF)<<8) |
+  162   1                 ((input&0xFF00)>>8);
+  163   1          return temp;
+  164   1      }
+  165          
+  166          
+  167          WORD RegSw(WORD dat)
+  168          {
+  169   1          //WORD h,l;
+  170   1          //h = (dat >> 8) &0x00FF;
+  171   1          //l = dat & 0x00FF;
+  172   1          //return (l<<8) | h;
+  173   1          return dat;
+  174   1      }
+  175          
+  176          
+  177          // 判断帧的合法性
+  178          BYTE ValidRtuFrame(BYTE *abyRdBuf,BYTE len)
+  179          {
+  180   1          WORD crc;
+  181   1      
+  182   1      
+  183   1          //memset(&ReadAckFrame, 0, sizeof(DEVICE_READ_ACK));
+  184   1          //memcpy(&ReadAckFrame, abyRdBuf, len);
+  185   1          // 判断CRC
+  186   1          crc = CRC16Calc(abyRdBuf,len);
+  187   1          if (crc != 0)
+  188   1          {
+  189   2              return false;
+C251 COMPILER V5.60.0,  ModBus                                                             21/05/24  09:30:57  PAGE 4   
+
+  190   2          }
+  191   1          
+  192   1          return true;
+  193   1      }
+  194          
+  195          
+  196          
+  197          // 判断帧的合法性
+  198          BYTE ValidTcpFrame(BYTE *abyRdBuf,BYTE len)
+  199          {
+  200   1          BYTE rlen = 0;
+  201   1      
+  202   1          //memcpy(MbId, abyRdBuf, 2);
+  203   1          //memset(&RecvBuf, 0, sizeof(DEVICE_READ_ACK));
+  204   1          //memcpy(&RecvBuf, &abyRdBuf[6], len);
+  205   1      
+  206   1          rlen = abyRdBuf[5];
+  207   1          if (rlen != len - 6)
+  208   1          {
+  209   2              return false;
+  210   2          }
+  211   1      
+  212   1         
+  213   1          return true;
+  214   1      }
+  215          
+  216          
+  217          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =       598     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =    ------     ------
+  xdata-const size     =    ------     ------
+  edata size           =    ------         60
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =         8     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,1028 @@
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE main
+OBJECT MODULE PLACED IN .\obj\main.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE USER\main.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Hardware\LED
+                    -;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\main.lst) OBJECT(.\obj\main.
+                    -obj) 
+
+stmt  level    source
+
+    1          #include "main.h"
+    2          #include "led.h"
+    3          #include "time.h"
+    4          #include "uart.h"
+    5          #include "eeprom.h"
+    6          #include "PDoseRateCalc.h"
+    7          #include "ModBus.h"
+    8          #include "ModBusDev.h"
+    9          #include "Pkur.h"
+   10          #include "Cmd.h"
+   11          #include "PdFilter.h"
+   12          
+   13          #ifdef USE_EPD_DOSE
+   14          //#include "Epd.h"
+   15          #include "epd_dose.h"
+   16          #endif
+   17          
+   18          SYS_PARAM xdata SysParam = {0};
+   19          
+   20          
+   21          const char Ver[] = "V2.0";
+   22          const char Id[] =  "M47";
+   23          
+   24          WORD  TimerACnt = 0;
+   25          WORD  SleepCnt  = 0;
+   26          WORD  UartCnt = 0;
+   27          
+   28          BYTE PrukData[6] = {0};
+   29          float DoseRate=0.0;
+   30          float DoseMax=0.0;
+   31          float DoseTotal=0.0;
+   32          DWORD Cps = 0;
+   33          
+   34          DWORD Cps30s = 0;
+   35          
+   36          WORD  CntTimer = 1000;
+   37          
+   38          QPara Sys_Para;
+   39          
+   40          BYTE DevSt = 0x00;
+   41          BOOL bIniting = TRUE;
+   42          
+   43          // ∆Ωª¨∫ÛµƒCPS÷µ
+   44          float CpsHis = 0.0;
+   45          
+   46          #ifdef USE_EPD_DOSE
+   47          QEpd Epd;
+   48          tag_CALC_DOSERATE Calc_doserate;
+   49          
+   50          #endif
+   51          
+   52          void Error()
+   53          {
+   54   1          while(1)
+   55   1          {
+   56   2              RUN_LED(1);
+   57   2              delay_ms(50);
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 2   
+
+   58   2              RUN_LED(0);
+   59   2              delay_ms(50);
+   60   2          }
+   61   1          
+   62   1      }
+   63          
+   64          
+   65          void SysInit()
+   66          {
+   67   1          HIRCCR = 0x80;           // ∆Ù∂Øƒ⁄≤ø∏ﬂÀŸIRC
+   68   1          while(!(HIRCCR & 1));
+   69   1          CLKSEL = 0;              
+   70   1      }
+   71          
+   72          void IoInit()
+   73          {
+   74   1          EAXFR = 1;
+   75   1          WTST = 0;                                           //…Ë÷√≥Ã–Ú÷∏¡Ó—” ±≤Œ ˝£¨∏≥÷µŒ™0ø…Ω´CPU÷¥––÷∏¡ÓµƒÀ
+             -Ÿ∂»…Ë÷√Œ™◊ÓøÏ
+   76   1      
+   77   1          P0M1 = 0x00;   P0M0 |= (1<<6) ;                     // P0.0 P0.1 P0.4 Õ∆ÕÏ ‰≥ˆ
+   78   1          P1M1 = 0x00;   P1M0 = 0x00;                         //…Ë÷√Œ™◊ºÀ´œÚø⁄
+   79   1          P2M1 = (1<<4);   P2M0 = 0x00; //(1<<2)|(1<<3)|(1<<5)|(1<<6)|(1<<7);                      // P2.2 Õ∆ÕÏ
+             - ‰≥ˆ
+   80   1          P3M1 = (1<<2);   P3M0 = 0x00;        //…Ë÷√Œ™◊ºÀ´œÚø⁄
+   81   1          P4M1 = 0x00;   P4M0 = 0x00;//(1<<5)|(1<<6);                         //…Ë÷√Œ™◊ºÀ´œÚø⁄
+   82   1          P5M1 = 0x00;   P5M0 |= (1<<3);             //…Ë÷√Œ™◊ºÀ´œÚø⁄
+   83   1      
+   84   1      }
+   85          
+   86          void LedInit()
+   87          {
+   88   1          // ≥ı º◊¥Ã¨∂ºŒ™0
+   89   1          //RUN_LED(0);
+   90   1          DEVRUN_LED(0);
+   91   1      }
+   92          
+   93          
+   94          //unsigned char CheckSum(char *buf,int len)
+   95          //{
+   96          //    BYTE Sum=0;
+   97          //    //unsigned char verify=0;
+   98          //    unsigned int i=0;
+   99          //    
+  100          //    for(i=1;i<len;i++)
+  101          //    {
+  102          //        Sum+=*(buf+i);
+  103          //    }
+  104          //    //verify=(char)(Sum%256);
+  105          //    return Sum%234;
+  106          //}
+  107          WORD ParamCheck(BYTE *buf, WORD len)
+  108          {
+  109   1          WORD dwSum = 0;
+  110   1          WORD i;
+  111   1      
+  112   1          for (i = 0; i < len; i++)
+  113   1          {
+  114   2              dwSum += buf[i];
+  115   2          }
+  116   1      
+  117   1          return dwSum;
+  118   1      }
+  119          
+  120          void ParamDef()
+  121          {
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 3   
+
+  122   1          BYTE i;
+  123   1      //    Sys_Para.Channel = CHANNEL_1; 
+  124   1      //    Sys_Para.RepMode = 1; // ◊‘∂Øª„±®
+  125   1      
+  126   1          
+  127   1      //    Sys_Para.Thres[0] = 255-30;
+  128   1      //    Sys_Para.Thres[1] = 10;
+  129   1      //    Sys_Para.Thres[2] = 150;
+  130   1      
+  131   1      //    Sys_Para.AoutSw = 0;
+  132   1          Sys_Para.Cr = 1;
+  133   1          SysParam.Addr = 1;
+  134   1          SysParam.Ver = VERSION;
+  135   1          SysParam.Channel = CHANNEL_1;
+  136   1          SysParam.RepMode = 1;
+  137   1          SysParam.s_Thr.DET_THR[0] = 255-30;
+  138   1          SysParam.s_Thr.DET_THR[1] = 10;
+  139   1          SysParam.s_Thr.DET_THR[2] = 150;
+  140   1          SysParam.AoutSw = 0;
+  141   1          for(i = 0;i<16;i++)
+  142   1          {
+  143   2              SysParam.fix[i] = 1.0;
+  144   2          }
+  145   1          
+  146   1      }
+  147          
+  148          void WriteParam()
+  149          {
+  150   1          EA = 0;    
+  151   1          
+  152   1          EEPROM_SectorErase(0);
+  153   1          EEPROM_SectorErase(512);
+  154   1          SysParam.Sum = ParamCheck((BYTE *)&SysParam, sizeof(SYS_PARAM)-2);
+  155   1          if (!EEPROM_write(0, (BYTE *)&SysParam, sizeof(SYS_PARAM)))
+  156   1          {
+  157   2              Error();
+  158   2          }
+  159   1          EA = 1;     //¥Úø™◊‹÷–∂œ
+  160   1      }
+  161          
+  162          
+  163          void ReadParam()
+  164          {
+  165   1          EEPROM_read(0, (BYTE *)&SysParam, sizeof(SYS_PARAM));
+  166   1      
+  167   1          #if 0
+                   memset(StrTmp,0,32);
+                   sprintf((char *)StrTmp,"%d \r\n",sizeof(SYS_PARAM));
+                   DebugMsg((char *)StrTmp);
+               
+                   memset(StrTmp,0,32);
+                   sprintf((char *)StrTmp,"%d \r\n",sizeof(HOST_SENSOR_PARAM));
+                   DebugMsg((char *)StrTmp);
+               
+                   memset(StrTmp,0,32);
+                   sprintf((char *)StrTmp,"%d \r\n",sizeof(HOST_ALRAM_PARA));
+                   DebugMsg((char *)StrTmp);
+               
+                   memset(StrTmp,0,32);
+                   sprintf((char *)StrTmp,"%d \r\n",sizeof(float));
+                   DebugMsg((char *)StrTmp);
+                   
+                   //Rs485Send((BYTE *)&SysParam, sizeof(SYS_PARAM));
+                   
+                   
+                   if (SysParam.Sign != PARAM_SIGN)
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 4   
+
+                   {
+                       DebugMsg("Sign error. \r\n");
+                   }
+               
+                   if (SysParam.Sum != ParamCheck((BYTE *)&SysParam, sizeof(SYS_PARAM)-2))
+                   {
+                       DebugMsg("Param Check error. \r\n");
+                   }
+                   #endif
+  197   1      
+  198   1         
+  199   1          if (SysParam.Sum != ParamCheck((BYTE *)&SysParam, sizeof(SYS_PARAM)-2))
+  200   1          {
+  201   2              ParamDef();
+  202   2              WriteParam();
+  203   2              //DebugMsg("Def Param. \r\n");
+  204   2          }
+  205   1      }
+  206          
+  207          
+  208          WORD GetCounter()
+  209          {
+  210   1          #if 1 
+  211   1          WORD c;
+  212   1          memset(PrukData,0,6);
+  213   1          SGetCount(PrukData);
+  214   1          SCLR();  
+  215   1      
+  216   1         
+  217   1          c = PrukData[1];
+  218   1          c <<= 8;
+  219   1          c |= PrukData[0];
+  220   1          return c;
+  221   1          #else
+                   static BYTE i = 0;
+                   static WORD j = 0;
+               
+                   i++;
+                   //j = 0;
+                   if (i>6)
+                   {
+                       i = 0;
+                       return 1; // j++;
+                   }
+                   else
+                   {
+                       return 0; //j;
+                   }
+                   #endif
+  237   1      }
+  238          
+  239          void PkurSw(BYTE ch)
+  240          {
+  241   1          if (ch & 1)
+  242   1          {
+  243   2              PKU_AE1(1);
+  244   2          }
+  245   1          else
+  246   1          {
+  247   2              PKU_AE1(0);
+  248   2          }
+  249   1      
+  250   1          if (ch & 2)
+  251   1          {
+  252   2              PKU_AE2(1);
+  253   2          }
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 5   
+
+  254   1          else
+  255   1          {
+  256   2              PKU_AE2(0);
+  257   2          }
+  258   1      }
+  259          
+  260          void Dev_Check()
+  261          {
+  262   1          BYTE i;
+  263   1      
+  264   1          i = 10;     // 4S    
+  265   1          while(i--)
+  266   1          {
+  267   2              DEVRUN_LED(1);
+  268   2              Sleep(200);
+  269   2              DEVRUN_LED(0);
+  270   2              Sleep(200);
+  271   2          }
+  272   1      
+  273   1          if (GetCounter() < 10)
+  274   1          {
+  275   2              //DevSt |= ERR_SENSER;
+  276   2          }
+  277   1      
+  278   1          
+  279   1          // wait 10 s
+  280   1          i = 10;
+  281   1          while(i--)
+  282   1          {
+  283   2              Sleep(1000);
+  284   2              GetCounter();
+  285   2          }
+  286   1          
+  287   1          bIniting = FALSE;
+  288   1          //DevSt &= ~ERR_INIT;
+  289   1      }
+  290          
+  291          #ifndef USE_EPD_DOSE
+               
+               float CpsTouSv_h(float count)
+               {
+                   #if 0
+                   return count;
+                   #else
+                   float DRreturn;
+                   float count2;
+                   float count3;
+                   unsigned char State;
+               
+                   const float lowfactor0 = -0.1150896707;
+                   const float lowfactor1 = 10.48925651;
+                   const float lowfactor2 = -0.3584771495;
+                   const float lowfactor3 = 0.3935024371e-1;
+               
+                   const float midfactor0 = 4.175559983;
+                   const float midfactor1 = 13.59064852;
+                   const float midfactor2 = 0.5482365533e-3;
+                   const float midfactor3 = -0.1990246458e-6;
+               
+                   const float highfactor0 = 971.2739047;
+                   const float highfactor1 = 12.99644062;
+                   const float highfactor2 = 0.1530853217e-3;
+                   const float highfactor3 = 0.1215235629e-8;
+               
+                   DRreturn = 0.0f;
+                   count2 = count * count;
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 6   
+
+                   count3 = count2 * count;
+               
+                   #if 1
+                   if(count >= 2540)
+                   {
+                       State=2;  //high
+                   }
+                   else if(count >= 8.6)
+                   {   
+                       State=1;    //mid
+                   }
+                   else
+                   {
+                       State=0;  //low
+                   }
+                   #else
+                   State=0;  //low
+                   #endif
+               
+                   
+                   if (count >= 0.14) /* cps :0.068333333 ∂‘”¶º¡¡ø¬  «:0.885738234uSv/h */
+                   {
+                       switch(State)
+                       {
+                           case 0:  //µÕº¡¡ø     
+                           {
+                               #if 1      
+                               DRreturn = lowfactor0 
+                                          + count * lowfactor1 
+                                          + count2 * lowfactor2 
+                                          + count3 * lowfactor3;
+                               #else
+               
+                               DRreturn =    -1.387933839 
+                                           + count * 21.46101642
+                                           + count2 * -7.696467625 
+                                           + count3 * 2.613823815
+                                           + count3 * count *-0.3595228660 
+                                           + count3 * count2 *0.1713606062e-1;
+                               #endif
+                               break;
+                           }
+               
+               
+                           case 1:
+                           {
+                               DRreturn =    midfactor0 
+                                           + count * midfactor1 
+                                           + count2 * midfactor2 
+                                           + count3 * midfactor3;                
+                               break;
+                           }
+                           
+                           case 2:
+                           {
+                               DRreturn =    highfactor0 
+                                           + count * highfactor1 
+                                           + count2 * highfactor2 
+                                           + count3 * highfactor3;
+                               break;
+                           }
+               
+               
+                       } 
+                       //DRreturn = DRreturn / 1000.0; // to mSv
+                   }
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 7   
+
+                   else
+                   {
+                       
+                       if (count <= 0.03)
+                       {
+                           //DRreturn = 0.000099 + count * 0.001;  //mSv
+                           DRreturn = 0.099 + count * 0.001;  //uSv
+                       }
+                       else
+                       {
+                           //DRreturn = 0.000099 + count * 0.01131;  // mSv
+                           DRreturn = 0.099 + count * 0.01131;  // uSv
+                       }
+                   }
+               
+                   if (DRreturn > 99999000000)
+                   {
+                       DRreturn = 99999000000;
+                   }
+               
+                   // ±£¡Ù¡ΩŒª–° ˝£¨∫Û√Êµƒ ˝æ›÷±Ω”…·∆˙£¨≤ªÀƒ…·ŒÂ»Î
+                   //DRreturn *= Sys_Para.Cr;
+                   
+                   return (DRreturn <= 0 ? 0:DRreturn);
+                   
+                   #endif
+               }
+               #endif
+  414          
+  415          void AddTotal()
+  416          {
+  417   1          SysParam.s_DoseRate.DoseTotal = (float)Calc_doserate.fDoseSumx;
+  418   1      }
+  419          
+  420          #ifndef USE_EPD_DOSE
+               
+               // »°∆Ωæ˘÷µ
+               #define CT 120   
+               static DWORD CpsArr[CT] = {0};
+               static BOOL Full = FALSE;
+               static BYTE ArrCnt = 0;
+               
+               
+               // Ω´º∆ ˝—π»Î∂—’ª
+               void PushCps(DWORD cps)
+               {
+                   BYTE i;
+                   if (ArrCnt >= CT)
+                   {
+                       Full = TRUE;
+                       for (i=1;i<CT;i++)
+                       {
+                           CpsArr[i-1] = CpsArr[i];
+                       }
+                       CpsArr[CT-1] = cps;
+                   }
+                   else
+                   {
+                       CpsArr[ArrCnt++] = cps;
+                   }
+               }
+               
+               void ClearCounter()
+               {
+                   memset(CpsArr,0,sizeof(CpsArr));
+                   Full = FALSE;
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 8   
+
+                   ArrCnt = 0;
+                   CpsHis = 0;
+               }
+               
+               
+               // º∆ ˝∆Ωª¨
+               float CounterPH()
+               {
+                   float Val = 0.0;
+                   BYTE i;
+                   
+                   
+                   Val = 0.0;
+                   if (Full)
+                   {
+                       for (i=0;i<CT;i++)
+                       {
+                           Val += CpsArr[i];
+                       }
+                       Val = Val/CT;
+                   }
+                   else if (ArrCnt > 0)
+                   {
+                       for (i=0;i<ArrCnt;i++)
+                       {
+                           Val += CpsArr[i];
+                       }
+                       Val = Val/ArrCnt;
+                   }
+                   else
+                   {
+                       Val = SysParam.s_DoseRate.Cps1;
+                   }
+               
+                   CpsHis = Val;
+                   return Val;
+               }
+               
+               
+               
+               float GetHis(BYTE time)
+               {
+                   BYTE i;
+                   float ret = 0.0;
+                   if (Full)
+                   {
+                       for (i=CT-time;i<CT;i++)
+                       {
+                           ret += CpsArr[i];
+                       }
+               
+                       return (ret/time);
+                   }
+                   else
+                   {
+                       if (time > ArrCnt)
+                       {
+                           for (i=0;i<ArrCnt;i++)
+                           {
+                               ret += CpsArr[i];
+                           }
+               
+                           return (ret/ArrCnt);
+                       }
+                       else
+                       {
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 9   
+
+                           for (i=ArrCnt-time;i<ArrCnt;i++)
+                           {
+                               ret += CpsArr[i];
+                           }
+               
+                           return (ret/time);
+                       }
+                   }
+               
+                   //return 0.0;
+               }
+               
+               
+               // time :  ±£¡Ù◊Ó∫Ûº∆ ˝µƒ ±º‰
+               void ResvCps(BYTE time)
+               {
+                   BYTE i;
+                   if (Full)
+                   {
+                       for (i=0;i<CT;i++)
+                       {
+                           if (i<time)
+                           {
+                               CpsArr[i] = CpsArr[CT-time+i];
+                           }
+                           else
+                           {
+                               CpsArr[i] = 0;
+                           }
+                       }
+                       ArrCnt = time;
+                       Full = FALSE;
+                   }
+                   else
+                   {
+                       if (time < ArrCnt)
+                       {
+                           for (i=0;i<ArrCnt;i++)
+                           {
+                               if (i<time)
+                               {
+                                   CpsArr[i] = CpsArr[ArrCnt-time+i];
+                               }
+                               else
+                               {
+                                   CpsArr[i] = 0;
+                               }
+                           }
+               
+                           ArrCnt = time;
+                       }
+                       else
+                       {
+                           // »´≤ø±£¡Ù£¨æÕ≤ª◊ˆ¥¶¿Ì¡À
+                       }
+                   }
+               }
+               // º∆ ˝—π»Î∂”¡–
+               void AddCounter(DWORD cps)
+               {
+                   #if 0
+                   static float His120S = 0.0;
+                   //static float His60S  = 0.0;
+                   static float His30S  = 0.0;
+                   static float His10S  = 0.0;
+                   static float His5S   = 0.0;
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 10  
+
+                   static float His3S   = 0.0;
+               
+                   float M1,M2,M3;
+                   #endif
+                   
+                   PushCps(cps);
+               
+                   #if 0
+                   
+                   His120S = GetHis(120);
+                   //His60S  = GetHis(60);
+                   His30S  = GetHis(30);
+                   His10S  = GetHis(10);
+                   His5S   = GetHis(5);
+                   His3S   = GetHis(3);
+               
+                   
+                   M1 = 1000; // 0.8mSv/h
+                   M2 = 80;   // 50uSv/h
+                   M3 = 1.6;  // 1uSv/h
+                   
+               
+                   if (His3S > M1)   
+                   {
+                       if ((His3S > His120S * 1.03) || (His3S < His120S / 1.03))
+                       {
+                           ResvCps(3);
+                       }
+                   }
+                   else if (His5S > M2)  
+                   {
+                       if ((His5S > His120S * 1.1) || (His5S < His120S / 1.1))
+                       {
+                           ResvCps(5);
+                       }
+                   }
+                   else if (His10S > M3)  
+                   {
+                       if ((His10S > His120S * 1.2) || (His10S < His120S / 1.2))
+                       {
+                           ResvCps(10);
+                       }
+                   }
+                   else if (His30S > 0.0)  
+                   {
+                       if ((His30S > His120S * 1.3) || (His30S < His120S / 1.3))
+                       {
+                           ResvCps(30);
+                       }
+                   }
+               
+                   #if 0
+                   else if (His60S > 0.0)  // 0.0u
+                   {
+                       if ((His60S > His120S * 1.1) || (His60S < His120S / 1.1))
+                       {
+                           ResvCps(60);
+                       }
+                   }
+                   #endif
+               
+                   #endif
+                   
+               }
+               
+               
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 11  
+
+               void CpsFilter(DWORD cps)
+               {
+                   static DWORD BigCpsErr[3] = {0};
+                   static BYTE BigErrCnt = 0;
+               
+                   static DWORD SmCpsErr[3] = {0};
+                   static BYTE SmErrCnt = 0;
+                   
+                   if (CpsHis > 0.02)
+                   {
+                       //if (cps > 0)
+                       {
+                           if (cps > (CpsHis * 1.2))  // ¥Ûº∆ ˝
+                           {
+                               SmErrCnt = 0;
+                               BigCpsErr[BigErrCnt++] = cps;
+                               if (BigErrCnt >= 3)
+                               {
+                                   // ¡¨–¯¡Ω∏ˆ¥Ûº∆ ˝‘Ú≤ªÀ„∂∂∂Ø
+                                   ClearCounter();
+                                   AddCounter(BigCpsErr[0]);
+                                   AddCounter(BigCpsErr[1]);
+                                                       AddCounter(BigCpsErr[2]);
+                                   BigErrCnt = 0;
+                               }
+                           }
+                           else if (cps < (CpsHis / 1.2))  // –°º∆ ˝
+                           {
+                               BigErrCnt = 0;
+                               SmCpsErr[SmErrCnt++] = cps;
+                               if (SmErrCnt >= 3)
+                               {
+                                   // ¡¨–¯¡Ω∏ˆ–°º∆ ˝‘Ú≤ªÀ„∂∂∂Ø
+                                   ClearCounter();
+                                   AddCounter(SmCpsErr[0]);
+                                   AddCounter(SmCpsErr[1]);
+                                                       AddCounter(SmCpsErr[2]);
+                                   SmErrCnt = 0;
+                               }
+                           }
+                           else
+                           {
+                               AddCounter(cps);
+                               BigErrCnt = 0;
+                               SmErrCnt = 0;
+                           }
+                       }
+                       //else
+                       //{
+                       //    AddCounter(cps);
+                       //    BigErrCnt = 0;
+                       //    SmErrCnt = 0;
+                       //}
+                   }
+                   else
+                   {
+                       AddCounter(cps);
+                       BigErrCnt = 0;
+                       SmErrCnt = 0;
+                   }
+               }
+               
+               #endif
+  713          
+  714          double DrFix(QEpd *me, double dr)
+  715          {
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 12  
+
+  716   1          QEpdDoseFactor *pDoseFactor = (QEpdDoseFactor *)&me->EpdPara.tDoseFactor;
+  717   1          
+  718   1          if (dr < 3.0)
+  719   1          {
+  720   2              return (dr*SysParam.fix[0]);//pDoseFactor->lowfactor[0]
+  721   2          }
+  722   1          else if (dr < 10.0)
+  723   1          {
+  724   2              return (dr*SysParam.fix[1]);
+  725   2          }
+  726   1          else if (dr < 50.0)
+  727   1          {
+  728   2              return (dr*SysParam.fix[2]);
+  729   2          }
+  730   1          else if (dr < 100.0)
+  731   1          {
+  732   2              return (dr*SysParam.fix[3]);
+  733   2          }
+  734   1          else if (dr < 500.0)
+  735   1          {
+  736   2              return (dr*SysParam.fix[4]);
+  737   2          }
+  738   1          else if (dr < 1000.0)
+  739   1          {
+  740   2              return (dr*SysParam.fix[5]);
+  741   2          }
+  742   1          else if (dr < 5000.0)  
+  743   1          {
+  744   2              return (dr*SysParam.fix[6]);
+  745   2          }
+  746   1          else if (dr < 10000.0)
+  747   1          {
+  748   2              return (dr*SysParam.fix[7]);
+  749   2          }
+  750   1          else if (dr < 50000.0)
+  751   1          {
+  752   2              return (dr*SysParam.fix[8]);
+  753   2          }
+  754   1          else if (dr < 100000.0)
+  755   1          {
+  756   2              return (dr*SysParam.fix[9]);
+  757   2          }
+  758   1          else if (dr < 500000.0)
+  759   1          {
+  760   2              return (dr*SysParam.fix[10]);
+  761   2          }
+  762   1          else if (dr < 1000000.0)
+  763   1          {
+  764   2              return (dr*SysParam.fix[11]);
+  765   2          }
+  766   1          else if (dr < 5000000.0)
+  767   1          {
+  768   2              return (dr*SysParam.fix[12]);
+  769   2          }
+  770   1          else if (dr < 10000000.0)
+  771   1          {
+  772   2              return (dr*SysParam.fix[13]);
+  773   2          }
+  774   1          else if (dr < 50000000.0)
+  775   1          {
+  776   2              return (dr*SysParam.fix[14]);
+  777   2          }
+  778   1          else if (dr < 100000000.0)
+  779   1          {
+  780   2              return (dr*SysParam.fix[15]);
+  781   2          }
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 13  
+
+  782   1      
+  783   1          return dr;
+  784   1      }
+  785          
+  786          
+  787          void CaluDoseRate()
+  788          {
+  789   1          #ifndef USE_EPD_DOSE
+                   static BYTE Cnt = 0;
+                   static DWORD C30 = 0;
+                   float  c;
+                   
+                   
+                   Cnt++;
+                   if (Cnt<=30)
+                   {
+                       C30 += SysParam.s_DoseRate.Cps1;
+                   }
+                   else
+                   {
+                       Cps30s = C30;
+                       C30 = 0;
+                       Cnt = 0;
+                   }
+               
+                   CpsFilter(SysParam.s_DoseRate.Cps1);    
+                   c = CounterPH();
+                   
+                   //DoseRate = CpsTouSv_h(c) * Sys_Para.Cr;
+                   //DoseRate = DoseRateCalc(c) * Sys_Para.Cr;
+                   SysParam.s_DoseRate.DoseRate = DrFix(&Epd,    DoseRateCalc(c)); //  DoseRateCalc(c) * Sys_Para.Cr;
+                   #else
+  814   1          
+  815   1          QEpdDoseRateUpdate(&Epd,&Calc_doserate,1,true);
+  816   1          SysParam.s_DoseRate.DoseRate = (float)DrFix(&Epd, Calc_doserate.fDoseRate);   // Epd.fDoseRate * Sys_
+             -Para.Cr;
+  817   1          #endif
+  818   1          
+  819   1          if (DoseMax < SysParam.s_DoseRate.DoseRate)
+  820   1          {
+  821   2              DoseMax = SysParam.s_DoseRate.DoseRate;
+  822   2          }
+  823   1          
+  824   1          AddTotal();
+  825   1          
+  826   1      }
+  827          
+  828          
+  829          void Task_Counter()
+  830          {
+  831   1          static DWORD CpsTmp = 0;
+  832   1          static BYTE  Cnt = 0;
+  833   1          static BOOL  bCps1s = TRUE;
+  834   1      
+  835   1          if (bIniting)
+  836   1          {
+  837   2              return;
+  838   2          }
+  839   1      
+  840   1          if (bCps1s)
+  841   1          {
+  842   2              CpsTmp = 0;
+  843   2              Cnt    = 0;
+  844   2              
+  845   2              SysParam.s_DoseRate.Cps1 = GetCounter();
+  846   2              CaluDoseRate();
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 14  
+
+  847   2      
+  848   2       
+  849   2              if (SysParam.s_DoseRate.Cps1 >= COUNTER_THRES)
+  850   2              {
+  851   3                  CntTimer = 500;
+  852   3                  bCps1s = FALSE;
+  853   3              }
+  854   2          }
+  855   1          else
+  856   1          {
+  857   2              CpsTmp += GetCounter();
+  858   2              Cnt ++;
+  859   2              if (Cnt >= 2)
+  860   2              {
+  861   3                  Cnt    = 0;
+  862   3                  
+  863   3                  SysParam.s_DoseRate.Cps1 = CpsTmp;
+  864   3                  CaluDoseRate();
+  865   3      
+  866   3                  CpsTmp = 0;
+  867   3                  if (SysParam.s_DoseRate.Cps1 < COUNTER_THRES)
+  868   3                  {
+  869   4                      CntTimer = 1000;
+  870   4                      bCps1s = TRUE;
+  871   4                  }
+  872   3              }
+  873   2          }
+  874   1      }
+  875          
+  876          void SyncModBusDev()
+  877          {
+  878   1          BYTE i;
+  879   1          ModBusAddr.Addr = SysParam.Addr;
+  880   1          ModBusAddr.Ver = SysParam.Ver;
+  881   1          //sprintf(ModBusAddr.Ver,"V%d.%d.%d", SysParam.Ver/100, SysParam.Ver%100/10, SysParam.Ver%10 );
+  882   1          memset(&ModBusDoserate, 0, sizeof(MODBUS_DOSERATE));
+  883   1          ModBusDoserate.DoseRate = SysParam.s_DoseRate.DoseRate;
+  884   1          ModBusDoserate.DoseTotal = SysParam.s_DoseRate.DoseTotal;
+  885   1          ModBusDoserate.DevSt= SysParam.s_DoseRate.DevSt;
+  886   1          ModBusDoserate.Cps1 = SysParam.s_DoseRate.Cps1;
+  887   1          ModBusDoserate.Cps2 = SysParam.s_DoseRate.Cps2;
+  888   1          ModBusDoserate.Cps3 = SysParam.s_DoseRate.Cps3;
+  889   1      
+  890   1          memset(&ModBusAlarm, 0, sizeof(MODBUS_ALARM));
+  891   1          ModBusAlarm.DoseRatePreAlarm = SysParam.s_Alarm.DoseRatePreAlarm;
+  892   1          ModBusAlarm.DoseRateAlarm= SysParam.s_Alarm.DoseRateAlarm;
+  893   1          ModBusAlarm.DosePreAlarm = SysParam.s_Alarm.DosePreAlarm;
+  894   1          ModBusAlarm.DoseAlarm = SysParam.s_Alarm.DoseAlarm;
+  895   1      
+  896   1          memset(&ModBusThr, 0, sizeof(MODBUS_THR));
+  897   1          for(i = 0;i<3;i++)
+  898   1          {
+  899   2              ModBusThr.DET_THR[i] = SysParam.s_Thr.DET_THR[i];
+  900   2          }
+  901   1          ModBusThr.AnalogChannel = SysParam.s_Thr.AnalogChannel;
+  902   1      
+  903   1          memset(&ModBusFactor, 0, sizeof(MODBUS_FACTOR));
+  904   1          for(i = 0;i < 16;i++)
+  905   1          {
+  906   2              ModBusFactor.Fix[i] = SysParam.fix[i];
+  907   2          }
+  908   1      
+  909   1      }
+  910          
+  911          
+  912          void main(void)
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 15  
+
+  913          {
+  914   1          SysInit();
+  915   1          IoInit();
+  916   1          LedInit();
+  917   1          RUN_LED(1); 
+  918   1          delay_ms(200);
+  919   1          Timer0_Init();
+  920   1          delay_ms(200); 
+  921   1          
+  922   1          PKUR(1);    
+  923   1          delay_ms(500); 
+  924   1          Pkur_Init(SysParam.Channel);
+  925   1          delay_ms(500); 
+  926   1          
+  927   1          UART1_config();
+  928   1          ClearUart1Buf();
+  929   1          delay_ms(500);  
+  930   1          
+  931   1          ReadParam();
+  932   1          delay_ms(200);
+  933   1          
+  934   1      
+  935   1          // ¥˝CPUŒ»∂®¡À‘Ÿ∂¡≤Œ ˝
+  936   1          #ifdef USE_EPD_DOSE
+  937   1          QEpdParamInit(&Epd);
+  938   1          #endif
+  939   1      
+  940   1          SyncModBusDev();
+  941   1          delay_ms(200);
+  942   1          
+  943   1          Pkur_Init(SysParam.Channel); 
+  944   1          delay_ms(500);   
+  945   1          Dev_Check();
+  946   1          
+  947   1          RUN_LED(0);
+  948   1          InitArr(&Calc_doserate,BK_CPS);
+  949   1          EA = 1;                     //¥Úø™◊‹÷–∂œ
+  950   1      
+  951   1          WDT_CONTR |= (1<<5) |  7;   // ∆Ù∂Øø™√≈π∑£¨‘º8√Î
+  952   1          while(1)
+  953   1          {
+  954   2              TimerTask();
+  955   2              Uart1Hnd();
+  956   2         
+  957   2          }
+  958   1      }
+  959          
+  960          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =      1629     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =       119     ------
+  xdata-const size     =    ------     ------
+  edata size           =      1435     ------
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+C251 COMPILER V5.60.0,  main                                                               21/05/24  09:30:57  PAGE 16  
+
+  hconst size          =       243     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

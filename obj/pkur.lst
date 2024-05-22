@@ -1,0 +1,274 @@
+C251 COMPILER V5.60.0,  pkur                                                               21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE pkur
+OBJECT MODULE PLACED IN .\obj\pkur.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE Hardware\App\pkur.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Hard
+                    -ware\LED;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\pkur.lst) OBJECT(.\o
+                    -bj\pkur.obj) 
+
+stmt  level    source
+
+    1          #include "main.h"
+    2          #include "pkur.h"
+    3          #include "time.h"
+    4          //PUK_RST  -- P3.0
+    5          //PKU_AE1 -- P3.7
+    6          //PKU_AE2 -- P1.0
+    7          //PUK_CONT_EN -- P3.6
+    8          //PKU_CLK -- P3.3
+    9          //PKU_MOSI -- P3.1
+   10          //PKU_MISO -- P3.2
+   11          
+   12          
+   13          //#define Spi_Sck1   (P3OUT |=  BIT3)
+   14          //#define Spi_Sck0   (P3OUT &=(~BIT3))
+   15          //#define Spi_Si1    (P3OUT |=  BIT1)
+   16          //#define Spi_Si0    (P3OUT &=(~BIT1))   
+   17          //#define Spi_So     ((P3IN>>2) & 0X01) 
+   18          //
+   19          //#define PUK_RST1   (P3OUT |= BIT0)
+   20          //#define PUK_RST0   (P3OUT &= ~BIT0)
+   21          //#define PUK_AE1_1   (P3OUT |= BIT7)
+   22          //#define PUK_AE1_0   (P3OUT &= ~BIT7)
+   23          //#define PUK_AE2_1   (P1OUT |= BIT0)
+   24          //#define PUK_AE2_0   (P1OUT &= ~BIT0)
+   25          
+   26          
+   27          #define PUK_EN1    (P3OUT |= BIT6)
+   28          #define PUK_EN0    (P3OUT &= ~BIT6)
+   29          
+   30          
+   31          extern QPara Sys_Para;
+   32          
+   33          
+   34          
+   35          
+   36          /********************************************************************************************************
+             -***********
+   37          ** 函数名称: void SD_HardWareInit()                Name:      void SD_HardWareInit()
+   38          ** 功能描述: 初始化访问SD卡的硬件条件            Function: initialize the hardware condiction that access
+             - sd card
+   39          ** 输　入: 无                                    Input:      NULL
+   40          ** 输　出: 无                                    Output:      NULL
+   41          *********************************************************************************************************
+             -***********/
+   42          void Pkur_HwInit(void)
+   43          {
+   44   1          //P5DIR |= BIT6;
+   45   1          //P3OUT &= (~BIT1)&(~BIT3);//IO设置
+   46   1          //P3DIR |=  BIT0+BIT1+BIT3;//IO设置
+   47   1          PKU_RST(1);       // high reset
+   48   1          delay_ms(10);
+   49   1          PKU_RST(0);      
+   50   1          
+   51   1          PKU_AE1(1);  
+   52   1          PKU_AE2(0);   
+   53   1              
+   54   1          PKU_MOSI(0);
+C251 COMPILER V5.60.0,  pkur                                                               21/05/24  09:30:57  PAGE 2   
+
+   55   1          
+   56   1          COUNT(1);
+   57   1      
+   58   1          #if 0
+                   Spi_Sck0;
+                   Spi_Sck1;
+                   Spi_Sck0;
+                   Spi_Sck1;
+                   Spi_Sck0;
+                   PUK_EN0;
+                   #endif
+   66   1      }
+   67          /********************************************************************************************************
+             -***********
+   68          ** 函数名称: void SPI_SendByte()                Name:      void SPI_SendByte()
+   69          ** 功能描述: 通过SPI接口发送一个字节            Function: send a byte by SPI interface
+   70          ** 输　入: INT8U byte: 发送的字节                Input:      INT8U byte: the byte that will be send
+   71          ** 输　出: 无                                    Output:      NULL
+   72          *********************************************************************************************************
+             -***********/
+   73          unsigned char SPI_SendByte(unsigned char byte)
+   74          {
+   75   1      
+   76   1          unsigned char i,j;
+   77   1          j=0;
+   78   1          //P3IN |=BIT2;
+   79   1          PKU_CLK(0);
+   80   1          for(i=0;i<8;i++)           //"发数据
+   81   1          { 
+   82   2              if(byte&0x80)
+   83   2              {
+   84   3                  PKU_MOSI(1);;
+   85   3              }
+   86   2              else 
+   87   2              {
+   88   3                  PKU_MOSI(0);;
+   89   3              }
+   90   2              byte=byte<<1;
+   91   2      
+   92   2              #if 0
+                       for(int z = 0;z < 60;z++)//60
+                       {
+                           _NOP();                 //"根据芯片速度与单片机时钟调整延时
+                       }
+                       #endif
+   98   2              
+   99   2              PKU_CLK(1);
+  100   2              //_NOP();
+  101   2              //_NOP();
+  102   2              PKU_CLK(0);//下降沿读数据
+  103   2              j=j<<1;
+  104   2              if(PKU_MOSO())
+  105   2              {
+  106   3                  j=j|0x01;     //"读数据
+  107   3              }
+  108   2          }
+  109   1          return j;
+  110   1      }
+  111          /********************************************************************************************************
+             -***********
+  112          ** 函数名称: INT8U SPI_RecByte()                Name:      INT8U SPI_RecByte()
+  113          ** 功能描述: 从SPI接口接收一个字节                Function: receive a byte from SPI interface
+  114          ** 输　入: 无                                    Input:      NULL
+  115          ** 输　出: 收到的字节                            Output:      the byte that be received
+  116          *********************************************************************************************************
+             -***********/
+C251 COMPILER V5.60.0,  pkur                                                               21/05/24  09:30:57  PAGE 3   
+
+  117          unsigned char SPI_RecByte(void)
+  118          {
+  119   1          return SPI_SendByte(0XFF);
+  120   1      }
+  121          //2.2   芯片驱动
+  122          /************************************************************************************************/
+  123          /*指令编码                                                                                      */
+  124          /************************************************************************************************/
+  125          //设置通道开关
+  126          const unsigned char  tunnel_SW[2] = {0XD8,0X00};
+  127          //设置通道阈值
+  128          const unsigned char  tunnel_WriteLM[] = {0XC0,0XC8,0XD0};
+  129          //将三个通道计数器清零
+  130          const unsigned char  tunnel_CLR[] = {0XE0,0XE8,0XF0};
+  131          //读取三个通道计数
+  132          const unsigned char  tunnel_READ[4][2] = {{0X20,0X00},{0X24,0X00},{0X28,0X00},{0X2C,0X00}};
+  133          /************************************************************************************************/
+  134          //读取三个通道计数
+  135          //data:读到的计数值所在内存区首地址,大小为6字节；
+  136          //第0和1字节为第一通道的计数值，计数值为16位无符号整型数，
+  137          //                                 第0字节为计数值的低8位，第1字节为高8位；
+  138          //第2和3字节为第二通道的计数值，格式同上；
+  139          //第4和5字节为第三通道的计数值，格式同上；
+  140          /************************************************************************************************/
+  141          void SGetCount(unsigned char *dat)
+  142          {
+  143   1          int i;
+  144   1          unsigned char databuf[2];
+  145   1          for( i = 0;i < 3;i++)
+  146   1          {
+  147   2              SPI_SendByte(tunnel_READ[i][0]);
+  148   2              SPI_SendByte(tunnel_READ[i][1]);
+  149   2              databuf[0] = SPI_SendByte(0X00);
+  150   2              databuf[1] = SPI_SendByte(0X00);
+  151   2              SPI_SendByte(0X00);
+  152   2              SPI_SendByte(0X00);
+  153   2              dat[i*2] = (databuf[1]);
+  154   2              dat[i*2+1] = (databuf[0]);        
+  155   2          }    
+  156   1      }
+  157          
+  158          /************************************************************************************************/
+  159          //将三个通道计数器清零
+  160          /************************************************************************************************/
+  161          void SCLR(void)
+  162          {
+  163   1          int i;
+  164   1          for(i = 0;i < 3;i++)
+  165   1          {
+  166   2              SPI_SendByte(tunnel_CLR[i]);
+  167   2              SPI_SendByte(tunnel_READ[i][0]);
+  168   2              SPI_SendByte(tunnel_READ[i][1]);
+  169   2              SPI_SendByte(0X00);
+  170   2              SPI_SendByte(0X00);
+  171   2              SPI_SendByte(0X00);
+  172   2              SPI_SendByte(0X00);
+  173   2          }
+  174   1      }
+  175          
+  176          /************************************************************************************************/
+  177          //打开通道
+  178          //data:要打开的通道号
+  179          //04第一通道；BIT2
+  180          //02第二通道；BIT1
+  181          //01第三通道；BIT0
+  182          /************************************************************************************************/
+C251 COMPILER V5.60.0,  pkur                                                               21/05/24  09:30:57  PAGE 4   
+
+  183          void SMeasreStart(unsigned char dat)
+  184          {
+  185   1          SPI_SendByte(tunnel_SW[0]|(dat&0X07));
+  186   1          SPI_SendByte(tunnel_SW[1]);
+  187   1      }
+  188          
+  189          /************************************************************************************************/
+  190          //关闭所有通道
+  191          /************************************************************************************************/
+  192          void SMeasreStop(void)
+  193          {
+  194   1          SPI_SendByte(tunnel_SW[0]);
+  195   1          SPI_SendByte(tunnel_SW[1]);
+  196   1      }
+  197          
+  198          /************************************************************************************************/
+  199          //设置阈值
+  200          //datain:要设置阈值的所在的内存首地址，长度为3个字节
+  201          //第0、1、2字节分别为第一、二、三通道阈值
+  202          /************************************************************************************************/
+  203          void SSetLimen(unsigned char *datain)
+  204          {
+  205   1          int i;
+  206   1          for(i = 0;i < 3;i++)//设置阈值
+  207   1          {
+  208   2              SPI_SendByte(tunnel_WriteLM[i]|(datain[i]>>5));
+  209   2              SPI_SendByte(datain[i]<<3);
+  210   2          }
+  211   1      
+  212   1      }
+  213          
+  214          
+  215          void Pkur_Init(BYTE Channel)
+  216          {
+  217   1          //BYTE dd[3] = {10,10,150};
+  218   1          Pkur_HwInit();
+  219   1          PkurSw(SysParam.AoutSw);
+  220   1      
+  221   1          SMeasreStart(Channel);
+  222   1          SSetLimen((BYTE *)SysParam.s_Thr.DET_THR);
+  223   1      
+  224   1          SCLR();
+  225   1      }
+  226          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =       496     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =    ------     ------
+  xdata-const size     =    ------     ------
+  edata size           =    ------          6
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =        16     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,17 @@
+".\obj\main.obj",
+".\obj\uart.obj",
+".\obj\led.obj",
+".\obj\time.obj",
+".\obj\EepRom.obj",
+".\obj\epd_dose.obj",
+".\obj\PDoseRateCalc.obj",
+".\obj\pkur.obj",
+".\obj\ModBus.obj",
+".\obj\ModBusDev.obj",
+".\obj\PdFilter.obj",
+".\obj\Cmd.obj" 
+TO ".\obj\PileCore" 
+PRINT(".\obj\PileCore.map") CASE 
+REMOVEUNUSED 
+CLASSES (EDATA (0x0-0xFFF), 
+HDATA (0x0-0xFFF)) 

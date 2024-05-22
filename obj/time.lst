@@ -1,0 +1,162 @@
+C251 COMPILER V5.60.0,  time                                                               21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE time
+OBJECT MODULE PLACED IN .\obj\time.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE Hardware\TIM\time.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Hard
+                    -ware\LED;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\time.lst) OBJECT(.\o
+                    -bj\time.obj) 
+
+stmt  level    source
+
+    1          #include "time.h"
+    2          #include "uart.h"
+    3          #include "led.h"
+    4          #include "Cmd.h"
+    5          
+    6          u16  Timer0Cnt = 0;
+    7          u16  Timer1Cnt = 0;
+    8          u16  Time1s = 0;
+    9          
+   10          void Timer0_Init(void)        //10毫秒@11.0592MHz
+   11          {
+   12   1      
+   13   1          AUXR = 0x00;    //Timer0 set as 12T, 16 bits timer auto-reload, 
+   14   1          TH0 = (u8)(Timer0_Reload / 256);
+   15   1          TL0 = (u8)(Timer0_Reload % 256);
+   16   1          ET0 = 1;    //Timer0 interrupt enable
+   17   1          TR0 = 1;    //Tiner0 run
+   18   1          
+   19   1          // 中断优先级3
+   20   1          PT0  = 1;
+   21   1          PT0H = 1;
+   22   1      
+   23   1      }
+   24          
+   25          // 10ms 中断一下
+   26          void Timer0ISR (void) interrupt 1
+   27          {
+   28   1          Timer0Cnt ++;
+   29   1      }
+   30          
+   31          
+   32          //void delay_us(BYTE us)
+   33          //{
+   34          //    while(us--)
+   35          //    {
+   36          //        ;
+   37          //    }
+   38          //}
+   39          
+   40          void delay_ms(unsigned int ms)
+   41          {
+   42   1          unsigned int i;
+   43   1          do{
+   44   2              i = MAIN_Fosc / 6030;
+   45   2              while(--i);
+   46   2          }while(--ms);
+   47   1      }
+   48          
+   49          void Task1s()
+   50          {
+   51   1          static BYTE tm = 0;
+   52   1      
+   53   1          CLR_WDT = 1;  // 喂狗
+   54   1          tm++;
+   55   1          if(tm == 10)
+   56   1          {
+   57   2              SyncModBusDev();
+C251 COMPILER V5.60.0,  time                                                               21/05/24  09:30:57  PAGE 2   
+
+   58   2              tm = 0;
+   59   2          } 
+   60   1          
+   61   1          if((tm == 6)||(tm == 3))
+   62   1          {
+   63   2          }
+   64   1          
+   65   1          if(tm == 9)
+   66   1          {
+   67   2              
+   68   2          }
+   69   1      
+   70   1      }
+   71          
+   72          
+   73          void TimerTask()
+   74          {
+   75   1          u16 delta = 0;
+   76   1          static u16 Time1s = 0,Cnt = 0;
+   77   1          
+   78   1          if (Timer0Cnt)
+   79   1          {
+   80   2              delta = Timer0Cnt * 10;
+   81   2              Timer0Cnt = 0;
+   82   2      
+   83   2              if (RX1_Cnt > 0)
+   84   2              {
+   85   3                  Rx1_Timer += delta;
+   86   3              }
+   87   2              
+   88   2              Time1s += delta;
+   89   2              if (Time1s >= 100)
+   90   2              {
+   91   3                  CLR_WDT = 1;  // 喂狗
+   92   3                  Time1s = 0;
+   93   3                  //Task1s();
+   94   3              }
+   95   2      
+   96   2              Cnt += delta;
+   97   2              if (Cnt >= CntTimer)
+   98   2              {
+   99   3                  Cnt = 0;
+  100   3                  Task_Counter();
+  101   3              }
+  102   2      
+  103   2              SleepCnt += delta;
+  104   2              RunLed(delta);
+  105   2          }
+  106   1      }
+  107          
+  108          void Sleep(unsigned int ms)
+  109          {   
+  110   1          SleepCnt = 0;
+  111   1          
+  112   1          while(1)
+  113   1          {
+  114   2              TimerTask();
+  115   2      
+  116   2              if (SleepCnt >= ms)
+  117   2              {
+  118   3                  break;
+  119   3              }        
+  120   2          }
+  121   1      }
+  122          
+  123          
+C251 COMPILER V5.60.0,  time                                                               21/05/24  09:30:57  PAGE 3   
+
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =       219     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =    ------     ------
+  xdata-const size     =    ------     ------
+  edata size           =        11     ------
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =        35     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,319 @@
+C251 COMPILER V5.60.0,  Cmd                                                                21/05/24  09:30:58  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE Cmd
+OBJECT MODULE PLACED IN .\obj\Cmd.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE MwPro\Cmd.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usart;.\Hardware\LED
+                    -;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\Cmd.lst) OBJECT(.\obj\Cmd.ob
+                    -j) 
+
+stmt  level    source
+
+    1          /*************************************************************************
+    2          通信协议
+    3          
+    4          见:  M47ADS-PD辐射探测模块说明-20160802.docx
+    5          ***************************************************************************/
+    6          #include "Cmd.h"
+    7          #include "uart.h"
+    8          #include "main.h"
+    9          #include "pkur.h"
+   10          extern const char Ver[];
+   11          extern const char Id[];
+   12          extern QPara Sys_Para;
+   13          extern unsigned char RecvBuf[UART_BUF_LEN];
+   14          extern unsigned char SendBuf[UART_BUF_LEN];
+   15          extern int RecLen;
+   16          extern WORD UartCnt;
+   17          extern BYTE PrukData[6];
+   18          
+   19          extern float DoseRate;
+   20          extern float DoseMax;
+   21          extern float DoseTotal;
+   22          extern DWORD Cps;
+   23          extern DWORD Cps30s;
+   24          extern float CpsHis;
+   25          extern BYTE DevSt;
+   26          extern BOOL bIniting;
+   27          
+   28          BYTE RecData[16];
+   29          BYTE SendData[16];
+   30          
+   31          BYTE Cmd,Len;
+   32          
+   33          BYTE GetCs(BYTE b, BYTE len)
+   34          {
+   35   1          BYTE i,ret;
+   36   1          ret = 0;
+   37   1      
+   38   1          for (i=b;i<b+len;i++)
+   39   1          {
+   40   2              ret += RecvBuf[i];
+   41   2          }
+   42   1      
+   43   1          return ret;
+   44   1      }
+   45          
+   46          BYTE SetCs(BYTE len)
+   47          {
+   48   1          BYTE i,ret;
+   49   1          ret = 0;
+   50   1          for (i=0;i<len;i++)
+   51   1          {
+   52   2              ret += SendBuf[i];
+   53   2          }
+   54   1          return ret;
+   55   1      }
+   56          
+   57          void Handle_Uart_Rec()
+C251 COMPILER V5.60.0,  Cmd                                                                21/05/24  09:30:58  PAGE 2   
+
+   58          {
+   59   1          BYTE i,j;
+   60   1      
+   61   1          // 1秒钟没有数据则清空buf
+   62   1          if (Rx1_Timer < 20) 
+   63   1          {
+   64   2              RX1_Cnt = 0;
+   65   2              ClearUart1Buf();
+   66   2          }
+   67   1          
+   68   1          if (RX1_Cnt < 5)   // 一帧最少字节
+   69   1          {
+   70   2              return;
+   71   2          }
+   72   1      
+   73   1          for (i=0;i<RX1_Cnt; i++)
+   74   1          {
+   75   2              if (RX1_Buffer[i] == 0x16)
+   76   2              {
+   77   3                  // 查找起始符
+   78   3                  j = 0;
+   79   3                  while(RX1_Buffer[j] != 0x68)
+   80   3                  {
+   81   4                      j++;
+   82   4                      if (j >= RX1_Cnt) 
+   83   4                      {
+   84   5                          return ;
+   85   5                      }
+   86   4                  }
+   87   3      
+   88   3                  Cmd = RX1_Buffer[j+1];
+   89   3                  Len = RX1_Buffer[j+2];
+   90   3                  
+   91   3      
+   92   3                  //  校验长度
+   93   3                  if (Len == (i - j - 4))
+   94   3                  {
+   95   4                      //  计算校验
+   96   4                      if (RX1_Buffer[i-1]  == GetCs(j,(BYTE)(Len+3)))
+   97   4                      {
+   98   5                          if (Len > 0)
+   99   5                          {
+  100   6                              memcpy(RecData,&RX1_Buffer[j+3],Len);
+  101   6                          }
+  102   5                          HandCmd();
+  103   5                          
+  104   5                          RX1_Cnt = 0;
+  105   5                          ClearUart1Buf();
+  106   5                      }
+  107   4                  }
+  108   3              }
+  109   2          }
+  110   1      
+  111   1          
+  112   1      }
+  113          
+  114          
+  115          void SendCmd(BYTE Cmd, BYTE Len, BYTE *Dat)
+  116          {
+  117   1          SendBuf[0] = 0x68;
+  118   1          SendBuf[1] = Cmd;
+  119   1          SendBuf[2] = Len;
+  120   1          if (Len > 0)
+  121   1          {
+  122   2              memcpy(&SendBuf[3],Dat,Len);
+  123   2          }
+C251 COMPILER V5.60.0,  Cmd                                                                21/05/24  09:30:58  PAGE 3   
+
+  124   1          SendBuf[Len+3] = SetCs((BYTE)(Len+3));
+  125   1          SendBuf[Len+4] = 0x16;
+  126   1      
+  127   1          Uart1Send(SendBuf,(u8)(Len+5));
+  128   1      }
+  129          
+  130          
+  131          void SkHand()
+  132          {
+  133   1          SendCmd(CMD_SHARK_HAND,0,NULL);
+  134   1      }
+  135          
+  136          void GetDr()
+  137          {
+  138   1          memset(SendData,0,16);
+  139   1          memcpy(SendData,&DoseRate,4);
+  140   1          SendCmd(CMD_GET_DR,4,SendData);
+  141   1      }
+  142          
+  143          void GetDt()
+  144          {
+  145   1          memset(SendData,0,16);
+  146   1          memcpy(SendData,&DoseTotal,4);
+  147   1          SendCmd(CMD_GET_DOSE,4,SendData);
+  148   1      }
+  149          
+  150          void ClrDt()
+  151          {
+  152   1          DoseTotal = 0.0;
+  153   1          
+  154   1          memset(SendData,0,16);
+  155   1          SendData[0] = 0;
+  156   1          SendCmd(CMD_CLR_DOSE,1,SendData);
+  157   1      }
+  158          
+  159          void GetMax()
+  160          {
+  161   1          memset(SendData,0,16);
+  162   1          memcpy(SendData,&DoseMax,4);
+  163   1          SendCmd(CMD_GET_MAX,4,SendData);
+  164   1      }
+  165          
+  166          void GetSt()
+  167          {
+  168   1          // 这里还有待完善
+  169   1          
+  170   1          memset(SendData,0,16);
+  171   1          SendData[0] = DevSt;
+  172   1          SendCmd(CMD_GET_STATUS,1,SendData);
+  173   1      }
+  174          
+  175          void GetFct()
+  176          {
+  177   1          memset(SendData,0,16);
+  178   1          memcpy(SendData,&Sys_Para.Cr,4);
+  179   1          SendCmd(CMD_GET_FACTOR,4,SendData);
+  180   1      }
+  181          
+  182          void SetFct()
+  183          {
+  184   1          if (Len != 4)
+  185   1          {
+  186   2              return;
+  187   2          }
+  188   1          memcpy(&Sys_Para.Cr,RecData,4);
+  189   1          WriteParam();
+C251 COMPILER V5.60.0,  Cmd                                                                21/05/24  09:30:58  PAGE 4   
+
+  190   1          
+  191   1          memset(SendData,0,16);
+  192   1          SendData[0] = 0;
+  193   1          SendCmd(CMD_SET_FACTOR,1,SendData);
+  194   1      }
+  195          
+  196          void GetId()
+  197          {
+  198   1          memset(SendData,0,16);
+  199   1          memcpy(SendData,&Id,4);
+  200   1          SendCmd(CMD_GET_MODEID,4,SendData);
+  201   1      }
+  202          
+  203          void GetVer()
+  204          {
+  205   1          memset(SendData,0,16);
+  206   1          memcpy(SendData,&Ver,4);
+  207   1          SendCmd(CMD_GET_VER,4,SendData);
+  208   1      }
+  209          
+  210          void GetCps()
+  211          {   
+  212   1          float cps;
+  213   1          memset(SendData,0,16);
+  214   1          #if 1
+  215   1          // 发送实时CPS
+  216   1      
+  217   1          cps = (float)Cps;
+  218   1          memcpy(SendData,&cps,4);
+  219   1          #else
+                   // 发送平滑后的CPS
+                   memcpy(SendData,&CpsHis,4);
+                   #endif
+  223   1          SendCmd(CMD_GET_CPS,4,SendData);
+  224   1      }
+  225          
+  226          void GetCps30s()
+  227          {
+  228   1          memset(SendData,0,16);
+  229   1          memcpy(SendData,&Cps30s,4);
+  230   1          SendCmd(CMD_GET_CPS,4,SendData);
+  231   1      }
+  232          
+  233          
+  234          void SetThres()
+  235          {
+  236   1          if (Len != 1)
+  237   1          {
+  238   2              return;
+  239   2          }
+  240   1      
+  241   1          Sys_Para.Thres[0] = 255 - RecData[0];
+  242   1      
+  243   1          // 新的系统只有一个通道
+  244   1          //Sys_Para.Thres[1] = 255 - RecData[1];
+  245   1          //Sys_Para.Thres[2] = 255 - RecData[2];
+  246   1          
+  247   1          Pkur_Init(Sys_Para.Channel);
+  248   1          WriteParam();
+  249   1      
+  250   1          memset(SendData,0,16);
+  251   1          SendData[0] = 0;
+  252   1          SendCmd(CMD_SET_THRES,1,SendData);
+  253   1      }
+  254          
+  255          
+C251 COMPILER V5.60.0,  Cmd                                                                21/05/24  09:30:58  PAGE 5   
+
+  256          
+  257          void HandCmd()
+  258          {
+  259   1          switch(Cmd)
+  260   1          {
+  261   2              case CMD_SHARK_HAND    : SkHand();     break;     // 握手命令
+  262   2              case CMD_GET_DR        : GetDr();      break;     // 读当前剂量当量率
+  263   2              case CMD_GET_DOSE      : GetDt();      break;     // 读当前剂量当量
+  264   2              case CMD_GET_MAX       : GetMax();     break;     // 读最大剂量当量率
+  265   2              case CMD_GET_STATUS    : GetSt();      break;     // 读当前状态
+  266   2              case CMD_CLR_DOSE      : ClrDt();      break;     // 清除剂量当量
+  267   2              case CMD_GET_FACTOR    : GetFct();     break;     // 读校准因子命令
+  268   2              case CMD_SET_FACTOR    : SetFct();     break;     // 写校准因子命令
+  269   2              case CMD_GET_MODEID    : GetId();      break;     // 读模块编号
+  270   2              case CMD_GET_VER       : GetVer();     break;     // 读通信协议版本
+  271   2              case CMD_GET_CPS       : GetCps();     break;     // 读CPS
+  272   2              case CMD_GET_CPS_30S   : GetCps30s();  break;     // 读30秒计数
+  273   2              case CMD_SET_THRES     : SetThres();   break;     // 设置阈值
+  274   2          }
+  275   1      }
+  276          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =      1018     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =    ------     ------
+  xdata-const size     =    ------     ------
+  edata size           =        34          4
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =    ------     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,175 @@
+C251 COMPILER V5.60.0,  PDoseRateCalc                                                      21/05/24  09:30:57  PAGE 1   
+
+
+C251 COMPILER V5.60.0, COMPILATION OF MODULE PDoseRateCalc
+OBJECT MODULE PLACED IN .\obj\PDoseRateCalc.obj
+COMPILER INVOKED BY: D:\KeilMDK\C251\BIN\C251.EXE Hardware\App\PDoseRateCalc.c XSMALL INTR2 BROWSE INCDIR(.\Hardware\Usa
+                    -rt;.\Hardware\LED;.\Hardware\TIM;.\Hardware\Eeprom;.\ModBus;.\MwPro;.\Hardware\App;.\USER) DEBUG PRINT(.\obj\PDoseRateCa
+                    -lc.lst) OBJECT(.\obj\PDoseRateCalc.obj) 
+
+stmt  level    source
+
+    1          
+    2          #include "main.h"
+    3          
+    4          #if 1
+    5          
+    6          //#include "Epd.h"
+    7          #include "PDoseRateCalc.h"
+    8          
+    9          #if 0
+               #define LK4  0.3109221812e-4
+               #define LK3  -0.4082361904e-2
+               #define LK2  0.1426728048
+               #define LK1  10.11181609
+               #define LK0  -0.2014007739
+               
+               #define MK3  0.1277080700e-8
+               #define MK2  0.9200505397e-4
+               #define MK1  10.46742896
+               #define MK0  50.06881742
+               
+               #define HK3  0.1135803289e-7 
+               #define HK2  -0.6820468170e-3
+               #define HK1  34.01547122
+               #define HK0  -152106.7571
+               #else
+   26          #define LK4  0.3109221812e-4
+   27          #define LK3  0.2187706170e-3
+   28          #define LK2  -0.3012745075e-1
+   29          #define LK1  11.33073355
+   30          #define LK0  0.9305976888
+   31          
+   32          #define MK3  -0.3547875997e-6
+   33          #define MK2  0.3027908355e-2
+   34          #define MK1  8.903399278
+   35          #define MK0  97.58780370
+   36          
+   37          #define HK3  0.1723497784e-8 
+   38          #define HK2  0.1595624034e-4
+   39          #define HK1  10.80373834
+   40          #define HK0  6803.227777
+   41          #endif
+   42          
+   43          #define HighDR(x)  HK0 + x * HK1 + x * x * HK2 + x * x * x * HK3
+   44          #define MidDR(x)   MK0 + x * MK1 + x * x * MK2 + x * x * x * MK3
+   45          #define LowDR(x)   LK0 + x * LK1 + x * x * LK2 + x * x * x * LK3 // + x * x * x * x * LK4
+   46          
+   47          extern float fAverCPS;
+   48          extern float CpsHis;
+   49          
+   50          float DoseRateCalc(float count)
+   51          {
+   52   1          static float DRreturn = 0.0f;
+   53   1          //static float count;
+   54   1          //double count2 = count * count;
+   55   1          //double count3 = count2 * count;
+   56   1          unsigned char State;
+   57   1      
+C251 COMPILER V5.60.0,  PDoseRateCalc                                                      21/05/24  09:30:57  PAGE 2   
+
+   58   1          //count = fAverCPS;
+   59   1          //CpsHis = fAverCPS;
+   60   1      
+   61   1          if(count >= 8398)
+   62   1          {
+   63   2              State = 2;  //high
+   64   2          }
+   65   1          else if(count >= 75)
+   66   1          {   
+   67   2              State = 1;    //mid
+   68   2          }
+   69   1          else //if (count < 75)
+   70   1          {
+   71   2              State = 0;  //low
+   72   2          }
+   73   1      
+   74   1      
+   75   1          if (count >= 0.14) // 1.3uSv/h
+   76   1          {
+   77   2              switch(State)
+   78   2              {
+   79   3                  case 0:  //低剂量                
+   80   3                      DRreturn = LowDR(count);
+   81   3                  break;
+   82   3                      
+   83   3                  case 1:
+   84   3                      DRreturn = MidDR(count);
+   85   3                  break;
+   86   3                      
+   87   3                  case 2:
+   88   3                      DRreturn = HighDR(count);
+   89   3                  break;
+   90   3              } 
+   91   2      
+   92   2              //DRreturn = DRreturn / 1000.0; // to mSv
+   93   2          }
+   94   1          else
+   95   1          {
+   96   2              #if 0
+                       TRACE(("background dose rate mode......\n"));
+                       //由于2014年下半年探测器一致性不好，有些探测器在本底时候计数偏大，
+                       //导致本底情况下有些EPD剂量率在400-500nSv/h,这时的CPS在0.031034左右
+                       // 如果把这个计数带入 DRreturn = 0.000099 + count * 0.01131; 计算结果在450nSv/h,导致本底显示偏大
+                       // 通过修改count <= 0.053138。 CPS在0.031034左右 带入 DRreturn = 0.000099 + count * 0.001; 计算
+                       // 结果在130nSv/h.能接受。 0.053138 CPS剂量率在152nSv;
+                       // EPD测量范围在1uSv以上，所以1uSv以下没有多大影响,152 到 700 nSv中间不用考虑
+                       // if (count <= 0.03)
+                       //if (count <= 0.053138)  
+                       if (count <= 0.09734)
+                       {
+                          //计算结果在99nSv 到 152 nSv
+                          DRreturn = 0.000099 + count * 0.001;  //mSv
+                       }
+                       else
+                       {
+                           //计算结果700nSv 到 1.68uSv/h
+                          //DRreturn = 0.000099 + count * 0.01131;  // mSv 
+                           DRreturn = 0.000099 + count * 0.0099347;  // mSv 
+                       }
+                       #else
+  118   2              // count <0.14(0.001473mSv/h) ,敏感度很低，使用下面计算
+  119   2              // 在count =0.139, DRreturn = 0.000169 mSv
+  120   2              //DRreturn = 0.000099 + count * 0.0005;  //mSv
+  121   2              DRreturn = 0.099 + count * 0.0005;  //uSv
+  122   2              #endif
+  123   2          }
+C251 COMPILER V5.60.0,  PDoseRateCalc                                                      21/05/24  09:30:57  PAGE 3   
+
+  124   1          return (DRreturn <= 0 ? 0:DRreturn);
+  125   1      }
+  126          
+  127          //double CalcDoseRate(double count,int LowCoeffState, QComPara *me)
+  128          double QEpdDoseRateCalc()
+  129          {
+  130   1        static float dosrate=0;
+  131   1        dosrate=(double)DoseRateCalc(fAverCPS);
+  132   1        return dosrate;
+  133   1      }
+  134          
+  135          #endif
+  136          
+
+
+Module Information          Static   Overlayable
+------------------------------------------------
+  code size            =       356     ------
+  ecode size           =    ------     ------
+  data size            =    ------     ------
+  idata size           =    ------     ------
+  pdata size           =    ------     ------
+  xdata size           =    ------     ------
+  xdata-const size     =    ------     ------
+  edata size           =         8     ------
+  bit size             =    ------     ------
+  ebit size            =    ------     ------
+  bitaddressable size  =    ------     ------
+  ebitaddressable size =    ------     ------
+  far data size        =    ------     ------
+  huge data size       =    ------     ------
+  const size           =    ------     ------
+  hconst size          =        16     ------
+End of Module Information.
+
+
+C251 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
